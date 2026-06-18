@@ -137,7 +137,8 @@ static void compute_update(struct computer *c)
 		stepmask &= ~BIT(step);
 		analyze_processing_data(c->pdata, step, c->actv->bph, c->actv->la, c->actv->events_from);
 
-		if (ps[step].ready && ps[step].sigma < ps[step].period / 10000) {
+		if (ps[step].ready && ps[step].sigma < ps[step].period / 10000
+		    && (c->actv->bph != 0 || ps[step].sigma > 0)) {
 			// Try next step if it's available
 			if (stepmask & BIT(step+1)) step++;
 		} else {
