@@ -20,7 +20,7 @@ tg-timer runs on Windows (via MSYS2), macOS, and Linux. It is licensed under the
 (GPL v2).
 
 Source code and issue tracker:
-[https://github.com/vacaboja/tg](https://github.com/vacaboja/tg)
+[https://github.com/xyzzy42/tg](https://github.com/xyzzy42/tg)
 
 ## Table of Contents
 
