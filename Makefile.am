@@ -7,6 +7,7 @@ MOSTLYCLEANFILES = $(EXTRA_PROGRAMS)
 
 tg_timer_SOURCES = src/algo.c \
 		   src/audio.c \
+		   src/autotune.c \
 		   src/computer.c \
 		   src/config.c \
 		   src/interface.c \

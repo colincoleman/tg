@@ -804,6 +804,58 @@ float get_audio_peak(void)
 	return actx.info.do_tppm ? actx.info.tppm->peak : 0;
 }
 
+/** Effective audio sample rate (accounts for light-mode decimation). */
+int get_audio_sample_rate(void)
+{
+	return (int)lround(effective_sr());
+}
+
+/** Capture `len` samples of raw (unfiltered) audio.
+ *
+ * Temporarily disables every filter in the chain, waits long enough for the
+ * ring buffer to refill with unfiltered audio, then grabs the most recent
+ * `len` samples.  The previous enabled states are restored before returning.
+ * The brief unfiltered window is visible in the live display; that is expected
+ * during calibration.  Returns 0 on success, non-zero on failure. */
+int capture_raw_audio(unsigned len, float **out)
+{
+	*out = NULL;
+
+	struct filter_chain *chain = actx.info.chain;
+	if(!chain)
+		return 1;
+
+	const unsigned count = filter_chain_count(chain);
+	bool *saved = malloc(count * sizeof(*saved));
+	if(count && !saved)
+		return 1;
+
+	unsigned i;
+	for(i = 0; i < count; i++) {
+		const struct biquad_filter *f = filter_chain_get(chain, i);
+		saved[i] = f->enabled;
+		filter_chain_enable(chain, i, false);
+	}
+
+	/* Wait for the whole captured window (plus a margin) to be recorded with
+	 * the filters bypassed. */
+	const double secs = len / effective_sr() + 0.3;
+	struct timespec ts = { (time_t)secs, (long)((secs - (time_t)secs) * 1e9) };
+	nanosleep(&ts, NULL);
+
+	uint64_t when;
+	float *data = get_last_audio_data(len, &when);
+
+	for(i = 0; i < count; i++)
+		filter_chain_enable(chain, i, saved[i]);
+	free(saved);
+
+	if(!data)
+		return 1;
+	*out = data;
+	return 0;
+}
+
 /** Enable or disable the true peak programme meter.
  *
  * This allocates the buffer when enabled for the first time, but doesn't deallocate when

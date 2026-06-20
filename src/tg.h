@@ -182,6 +182,14 @@ void make_notch(struct filter *f, double freq, double bw);
 void make_peak(struct filter *f, double freq, double bw, double gain);
 bool analyze_processing_data(struct processing_data *pd, int step, int bph, double la, uint64_t events_from);
 int analyze_processing_data_cal(struct processing_data *pd, struct calibration_data *cd);
+/** Score a candidate filter chain on a captured raw audio recording.
+ *
+ * Copies `raw` (b->sample_count samples) into `b`, applies the given biquad
+ * filters in order, runs detection, and returns a quality score.  A score <= 0
+ * means detection did not lock.  Higher is better.  `b` must be a buffer set up
+ * with setup_buffers() whose sample_count matches the length of `raw`. */
+double score_filter_chain(struct processing_buffers *b, const float *raw,
+		const struct biquad_filter *filters, int nfilters, int bph, double la);
 
 /* audio.c */
 #define AUDIO_RATES       {22050,       44100,      48000,    96000,     192000 }
@@ -209,6 +217,15 @@ float* get_last_audio_data(unsigned int len, uint64_t *timestamp);
 
 float get_audio_peak(void);
 void set_audio_tppm(bool enable);
+
+/** Effective audio sample rate (accounts for light-mode decimation). */
+int get_audio_sample_rate(void);
+/** Capture `len` samples of raw (unfiltered) audio.
+ *
+ * Temporarily bypasses the filter chain, waits for the ring buffer to refill
+ * with unfiltered audio, then returns the captured window in *out (caller must
+ * free()).  Returns 0 on success, non-zero on failure (*out set to NULL). */
+int capture_raw_audio(unsigned len, float **out);
 
 struct filter_chain *filter_chain_init(double sample_rate);
 struct biquad_filter *filter_chain_insert(struct filter_chain *chain, unsigned index);
@@ -293,6 +310,27 @@ struct computer *start_computer(int nominal_sr, int bph, double la, int cal, int
 void lock_computer(struct computer *c);
 void unlock_computer(struct computer *c);
 void compute_results(struct snapshot *s);
+
+/* autotune.c */
+#define AUTOTUNE_MAX_FILTERS 4
+
+/** Result of an auto-tune sweep. */
+struct autotune_result {
+	struct biquad_filter filters[AUTOTUNE_MAX_FILTERS]; //< Recommended chain
+	int nfilters;		//< Number of filters in the recommended chain
+	double score;		//< Detection score of the recommended chain
+	double baseline;	//< Detection score of the existing chain
+	bool locked;		//< A tick was detected (sweep produced a result)
+	bool improved;		//< Recommended chain beats the existing chain
+};
+
+/** Start an asynchronous auto-tune sweep.
+ *
+ * Captures the running watch and empirically searches for a filter chain that
+ * maximises detection quality.  Runs on a worker thread; `done` is invoked on
+ * the GTK main thread with the result (which is freed after the call). */
+void autotune_start(struct filter_chain *chain, int bph, double la,
+		void (*done)(const struct autotune_result *result, void *user), void *user);
 
 /* output_panel.c */
 /* Snapshot display parameters, e.g. scale, centering. */
