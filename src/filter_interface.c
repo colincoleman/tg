@@ -421,7 +421,8 @@ static void filter_graph_toggled(GtkToggleButton *button, FilterDialogPrivate* p
 		filter_graph_update(priv, filter_selection_to_row(priv));
 	} else {
 		priv->graph_updated = true;
-		gtk_image_clear(priv->image);
+		if (priv->image)
+			gtk_image_clear(priv->image);
 	}
 }
 
@@ -997,7 +998,8 @@ static void filter_selected(GtkTreeSelection* selection, FilterDialogPrivate* pr
 		priv->selection = NULL;
 		gtk_widget_set_sensitive(priv->editframe, FALSE);
 		if (!priv->fullchain) {
-			gtk_image_clear(priv->image);
+			if (priv->image)
+				gtk_image_clear(priv->image);
 			priv->graph_updated = true;
 		}
 		priv->edit_updated = false;
