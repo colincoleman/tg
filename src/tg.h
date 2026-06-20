@@ -344,6 +344,7 @@ void op_set_border(struct output_panel *op, int i);
 void op_destroy(struct output_panel *op);
 
 /* interface.c */
+struct positional_test;
 struct main_window {
 	GtkApplication *app;
 
@@ -396,6 +397,9 @@ struct main_window {
 	bool do_tppm;	//!< Peak meter is enabled
 
 	bool vertical_layout;
+
+	GtkWidget *full_test_button;
+	struct positional_test *pos_test; /* NULL when no test active */
 
 	const char* program_name;
 	GKeyFile *config_file;

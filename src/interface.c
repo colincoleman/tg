@@ -17,6 +17,7 @@
 */
 
 #include "tg.h"
+#include "positional_test.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -189,6 +190,146 @@ static void on_shutdown(GApplication *app, void *p)
 	terminate_portaudio();
 }
 
+static void controls_active(struct main_window *w, int active);
+
+static void full_test_button_clicked(GtkButton *button, gpointer data)
+{
+	UNUSED(button);
+	struct main_window *w = (struct main_window *)data;
+
+	/* If a test is already running, this is a "Cancel Test" click */
+	if (w->pos_test != NULL && w->pos_test->state != POS_STATE_COMPLETE) {
+		pos_test_cancel(w->pos_test);
+		w->pos_test = NULL;
+		controls_active(w, 1);
+		gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Full Test");
+		return;
+	}
+
+	/* Show configuration dialog */
+	GtkWidget *dialog = gtk_dialog_new_with_buttons(
+		"Positional Test Configuration",
+		GTK_WINDOW(w->window),
+		GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+		"_Cancel", GTK_RESPONSE_CANCEL,
+		"_OK", GTK_RESPONSE_OK,
+		NULL);
+
+	GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+	gtk_container_set_border_width(GTK_CONTAINER(content), 10);
+
+	GtkWidget *grid = gtk_grid_new();
+	gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+	gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+	gtk_container_add(GTK_CONTAINER(content), grid);
+
+	/* Watch Name entry */
+	GtkWidget *name_label = gtk_label_new("Watch Name:");
+	gtk_widget_set_halign(name_label, GTK_ALIGN_START);
+	gtk_grid_attach(GTK_GRID(grid), name_label, 0, 0, 1, 1);
+
+	GtkWidget *name_entry = gtk_entry_new();
+	gtk_entry_set_placeholder_text(GTK_ENTRY(name_entry), "(optional)");
+	gtk_grid_attach(GTK_GRID(grid), name_entry, 1, 0, 1, 1);
+
+	/* Position Duration spin button */
+	GtkWidget *dur_label = gtk_label_new("Position Duration (s):");
+	gtk_widget_set_halign(dur_label, GTK_ALIGN_START);
+	gtk_grid_attach(GTK_GRID(grid), dur_label, 0, 1, 1, 1);
+
+	GtkWidget *dur_spin = gtk_spin_button_new_with_range(30, 600, 5);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dur_spin), POS_DEFAULT_DURATION);
+	gtk_grid_attach(GTK_GRID(grid), dur_spin, 1, 1, 1, 1);
+
+	/* Settling Time spin button */
+	GtkWidget *settle_label = gtk_label_new("Averaging Window (s):");
+	gtk_widget_set_halign(settle_label, GTK_ALIGN_START);
+	gtk_grid_attach(GTK_GRID(grid), settle_label, 0, 2, 1, 1);
+
+	GtkWidget *settle_spin = gtk_spin_button_new_with_range(5, 60, 5);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(settle_spin), POS_DEFAULT_SETTLING);
+	gtk_grid_attach(GTK_GRID(grid), settle_spin, 1, 2, 1, 1);
+
+	/* Read-only info labels */
+	char info_buf[128];
+	snprintf(info_buf, sizeof(info_buf), "BPH: %d", w->bph ? w->bph : DEFAULT_BPH);
+	GtkWidget *bph_info = gtk_label_new(info_buf);
+	gtk_widget_set_halign(bph_info, GTK_ALIGN_START);
+	gtk_grid_attach(GTK_GRID(grid), bph_info, 0, 3, 2, 1);
+
+	snprintf(info_buf, sizeof(info_buf), "Lift Angle: %.1f\u00b0", w->la);
+	GtkWidget *la_info = gtk_label_new(info_buf);
+	gtk_widget_set_halign(la_info, GTK_ALIGN_START);
+	gtk_grid_attach(GTK_GRID(grid), la_info, 0, 4, 2, 1);
+
+	snprintf(info_buf, sizeof(info_buf), "Cal: %c%d.%d s/d",
+		w->cal < 0 ? '-' : '+', abs(w->cal) / 10, abs(w->cal) % 10);
+	GtkWidget *cal_info = gtk_label_new(info_buf);
+	gtk_widget_set_halign(cal_info, GTK_ALIGN_START);
+	gtk_grid_attach(GTK_GRID(grid), cal_info, 0, 5, 2, 1);
+
+	gtk_widget_show_all(content);
+
+	/* Run dialog in a loop to allow re-display on validation error */
+	int response;
+	while ((response = gtk_dialog_run(GTK_DIALOG(dialog))) == GTK_RESPONSE_OK) {
+		/* Force spin buttons to commit any typed-in value */
+		gtk_spin_button_update(GTK_SPIN_BUTTON(dur_spin));
+		gtk_spin_button_update(GTK_SPIN_BUTTON(settle_spin));
+
+		int duration = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dur_spin));
+		int settling = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(settle_spin));
+
+		/* Validate: settling must be less than duration */
+		if (settling >= duration) {
+			GtkWidget *err = gtk_message_dialog_new(GTK_WINDOW(dialog), GTK_DIALOG_MODAL,
+				GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+				"Settling time (%d s) must be less than position duration (%d s).",
+				settling, duration);
+			gtk_dialog_run(GTK_DIALOG(err));
+			gtk_widget_destroy(err);
+			continue;
+		}
+
+		/* Check signal level */
+		if (w->active_snapshot->signal == 0) {
+			GtkWidget *err = gtk_message_dialog_new(GTK_WINDOW(dialog), GTK_DIALOG_MODAL,
+				GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+				"No signal detected. Please ensure the watch is positioned correctly "
+				"and producing an audible tick before starting the test.");
+			gtk_dialog_run(GTK_DIALOG(err));
+			gtk_widget_destroy(err);
+			gtk_widget_destroy(dialog);
+			return;
+		}
+
+		/* All validation passed — create and start the test */
+		w->pos_test = pos_test_create(w, duration, settling);
+		/* Store watch name */
+		const char *wname = gtk_entry_get_text(GTK_ENTRY(name_entry));
+		if (wname && wname[0])
+			w->pos_test->watch_name = strdup(wname);
+		else
+			w->pos_test->watch_name = NULL;
+		pos_test_create_tab(w->pos_test);
+		pos_test_start(w->pos_test);
+		/* Initialize last_event_seen to current newest event so we only
+		 * collect events going forward (avoid plotting old data) */
+		{
+			struct snapshot *s = w->active_snapshot;
+			if (s && s->events_count > 0 && s->events[s->events_wp])
+				w->pos_test->last_event_seen = s->events[s->events_wp];
+			if (s && s->amps_count > 0 && s->amps_time[s->amps_wp])
+				w->pos_test->last_amp_seen = s->amps_time[s->amps_wp];
+		}
+		controls_active(w, 0);
+		gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Cancel Test");
+		break;
+	}
+
+	gtk_widget_destroy(dialog);
+}
+
 static void computer_callback(void *w);
 
 static guint computer_terminated(struct main_window *w)
@@ -283,8 +424,24 @@ static guint kick_computer(struct main_window *w)
 		return TRUE;
 	} else {
 		recompute(w);
-		return TRUE;
 	}
+
+	/* Positional test update */
+	if (w->pos_test && w->pos_test->state == POS_STATE_ACTIVE) {
+		struct snapshot *s = w->active_snapshot;
+		pos_test_update(w->pos_test, s->events, s->events_wp, s->events_count,
+				s->amps, s->amps_time, s->amps_wp, s->amps_count,
+				s->signal, s->nominal_sr);
+
+		/* Check if test just completed */
+		if (w->pos_test->state == POS_STATE_COMPLETE) {
+			controls_active(w, 1);
+			gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Full Test");
+			/* Stay on the positional test tab so user can see results */
+		}
+	}
+
+	return TRUE;
 }
 
 static void handle_calibrate(GtkCheckMenuItem *b, struct main_window *w)
@@ -1019,6 +1176,11 @@ static void init_main_window(struct main_window *w)
 	gtk_box_pack_start(GTK_BOX(w->snapshot_name), w->snapshot_name_entry, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(hbox), w->snapshot_name, FALSE, FALSE, 0);
 	g_signal_connect(w->snapshot_name_entry, "changed", G_CALLBACK(handle_name_change), w);
+
+	// Full Test button
+	w->full_test_button = gtk_button_new_with_label("Full Test");
+	gtk_box_pack_start(GTK_BOX(hbox), w->full_test_button, FALSE, FALSE, 0);
+	g_signal_connect(w->full_test_button, "clicked", G_CALLBACK(full_test_button_clicked), w);
 
 	empty = gtk_label_new("");
 	gtk_box_pack_start(GTK_BOX(hbox), empty, TRUE, FALSE, 0);
