@@ -17,6 +17,7 @@
 */
 
 #include "tg.h"
+#include <sys/resource.h>
 
 static int count_events(const uint64_t *events, int wp, int nevents)
 {
@@ -378,11 +379,29 @@ struct computer *start_computer(int nominal_sr, int bph, double la, int cal, int
 	c->clear_trace = 0;
 
 	if(    pthread_mutex_init(&c->mutex, NULL)
-	    || pthread_cond_init(&c->cond, NULL)
-	    || pthread_create(&c->thread, NULL, computing_thread, c)) {
+	    || pthread_cond_init(&c->cond, NULL)) {
 		error("Unable to initialize computing thread");
 		return NULL;
 	}
+
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+
+	struct rlimit rl;
+	size_t stack_size;
+	if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != 0 && rl.rlim_cur != RLIM_INFINITY) {
+		stack_size = rl.rlim_cur;
+	} else {
+		stack_size = 8 * 1024 * 1024;  // 8MB fallback
+	}
+	pthread_attr_setstacksize(&attr, stack_size);
+
+	if (pthread_create(&c->thread, &attr, computing_thread, c)) {
+		error("Unable to initialize computing thread");
+		pthread_attr_destroy(&attr);
+		return NULL;
+	}
+	pthread_attr_destroy(&attr);
 
 	return c;
 }
