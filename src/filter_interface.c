@@ -207,6 +207,7 @@ typedef struct _FilterDialogPrivate {
 	GtkComboBox*	newtype;//< New filter type for add button
 	GtkTreePath*	selection; //< Last selection
 	struct filter_chain* chain; //< Filter chain, should match model
+	struct main_window* w; //< Owning main window, for auto-tune apply
 	/// @}
 
 	int	dnd_src;	//< Drag & Drop source row when DND is active
@@ -260,6 +261,8 @@ GtkWidget* filter_dialog_new(struct main_window *w)
 		"use-header-bar", FALSE,
 		"destroy-with-parent", TRUE,
 		NULL);
+	FilterDialogPrivate* priv = filter_dialog_get_instance_private(f);
+	priv->w = w;
 	filter_dialog_set_chain(f, w->filter_chain);
 	return GTK_WIDGET(f);
 }
@@ -470,6 +473,7 @@ static void add_filter_choices(GtkComboBoxText* cb)
 static void filter_list_changed(GtkTreeModel* model, GtkTreePath* path, GtkTreeIter* iter, FilterDialogPrivate *priv);
 static void filter_list_deleted(GtkTreeModel* model, GtkTreePath* path, FilterDialogPrivate *priv);
 static void filter_list_inserted(GtkTreeModel* model, GtkTreePath* path, GtkTreeIter* iter, FilterDialogPrivate *priv);
+static void autotune_clicked(GtkToolButton* button, FilterDialog* filter_dialog);
 
 static void filter_dialog_init(FilterDialog* filter_dialog)
 {
@@ -542,6 +546,15 @@ static void filter_dialog_init(FilterDialog* filter_dialog)
 		active_to_sensitive, NULL, NULL, NULL);
 	gtk_toolbar_insert(toolbar, tb, -1);
 	gtk_toolbar_insert(toolbar, create_tool_button("list-remove", G_CALLBACK(remove_filter), filter_dialog), -1);
+
+	// Auto-tune button: capture the running watch and choose filters automatically
+	GtkToolItem *autotune = gtk_tool_button_new(NULL, "Auto-tune");
+	gtk_tool_button_set_icon_name(GTK_TOOL_BUTTON(autotune), "preferences-system");
+	gtk_tool_item_set_is_important(autotune, TRUE);
+	gtk_widget_set_tooltip_text(GTK_WIDGET(autotune),
+		"Capture the running watch and automatically choose an audio filter chain.");
+	g_signal_connect(G_OBJECT(autotune), "clicked", G_CALLBACK(autotune_clicked), filter_dialog);
+	gtk_toolbar_insert(toolbar, autotune, -1);
 
 	// Filter Edit Area
 	//
@@ -894,6 +907,67 @@ static void fill_filter_liststore(FilterDialogPrivate* priv)
 	 * moves a row by creating a new one and deleting the old one.  */
 
 	g_signal_handlers_unblock_matched(G_OBJECT(priv->model), G_SIGNAL_MATCH_DATA, 0,0,NULL,NULL, priv);
+}
+
+/* Auto-tune support: rebuild the chain from a sweep result and refresh the UI. */
+struct autotune_ctx {
+	FilterDialog* dialog;
+	GtkToolButton* button;
+};
+
+static void autotune_done(const struct autotune_result* r, void* user)
+{
+	struct autotune_ctx* ctx = user;
+	FilterDialogPrivate* priv = filter_dialog_get_instance_private(ctx->dialog);
+	struct main_window* w = priv->w;
+
+	gtk_tool_button_set_label(ctx->button, "Auto-tune");
+	gtk_widget_set_sensitive(GTK_WIDGET(ctx->button), TRUE);
+
+	if (!r->locked) {
+		error("Auto-tune: no tick detected. Make sure a watch is running on the microphone.");
+		free(ctx);
+		return;
+	}
+	if (!r->improved) {
+		error("Auto-tune: the current filter settings already look optimal; no change made.");
+		free(ctx);
+		return;
+	}
+
+	/* Rebuild the live chain from the recommended filters, then refresh the
+	 * dialog's list store to match. */
+	struct filter_chain* chain = priv->chain;
+	while (filter_chain_count(chain) > 0)
+		filter_chain_remove(chain, 0);
+	int i;
+	for (i = 0; i < r->nfilters; i++) {
+		filter_chain_insert(chain, (unsigned)-1);
+		filter_chain_set(chain, i, r->filters[i].type, r->filters[i].frequency,
+			r->filters[i].bw, r->filters[i].gain);
+		filter_chain_enable(chain, i, true);
+	}
+	fill_filter_liststore(priv);
+
+	/* Keep the legacy high-pass field in sync for config persistence. */
+	if (r->nfilters > 0 && r->filters[0].type == HIGHPASS)
+		w->hpf_freq = r->filters[0].frequency;
+
+	save_on_change(w);
+	recompute(w);
+	free(ctx);
+}
+
+static void autotune_clicked(GtkToolButton* button, FilterDialog* filter_dialog)
+{
+	FilterDialogPrivate* priv = filter_dialog_get_instance_private(filter_dialog);
+
+	struct autotune_ctx* ctx = malloc(sizeof(*ctx));
+	ctx->dialog = filter_dialog;
+	ctx->button = button;
+	gtk_tool_button_set_label(button, "Calibrating…");
+	gtk_widget_set_sensitive(GTK_WIDGET(button), FALSE);
+	autotune_start(priv->chain, priv->w->bph, priv->w->la, autotune_done, ctx);
 }
 
 /* Check if change to path needs the edit pane to update */
