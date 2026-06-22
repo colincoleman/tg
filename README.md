@@ -5,8 +5,9 @@ source code of tg is available at
 [https://github.com/xyzzy42/tg](https://github.com/xyzzy42/tg) and its
 copyright belongs to the respective contributors.
 
-Tg is in development, and there is still no manual. Some info can be found
-in this
+A comprehensive [user manual](docs/user-manual.md) is available covering
+installation, configuration, operation, and troubleshooting. Additional
+discussion can be found in this
 [thread at WUS](http://forums.watchuseek.com/f6/open-source-timing-software-2542874.html),
 in particular the calibration procedure is described at
 [this post](http://forums.watchuseek.com/f6/open-source-timing-software-2542874-post29970370.html).
