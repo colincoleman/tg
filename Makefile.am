@@ -1,3 +1,4 @@
+AUTOMAKE_OPTIONS = serial-tests
 SUBDIRS = icons
 bin_PROGRAMS = tg-timer
 EXTRA_PROGRAMS = tg-timer-dbg \
@@ -89,6 +90,11 @@ EXTRA_DIST = autogen.sh \
 
 .rc.o:
 	$(WINDRES) $< -O coff -o $@
+
+check_PROGRAMS = tests/test_guess_no_signal
+TESTS = $(check_PROGRAMS)
+tests_test_guess_no_signal_SOURCES = tests/test_guess_no_signal.c src/algo.c src/tg.h
+tests_test_guess_no_signal_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/src
 
 test: tg-timer-dbg
 	./tg-timer-dbg test

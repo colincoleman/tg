@@ -25,6 +25,7 @@ tg-timer
 tg-timer-dbg
 tg-timer-prf
 tg-timer-vlg
+/tests/test_guess_no_signal
 
 # autotools
 Makefile
