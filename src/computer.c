@@ -17,7 +17,11 @@
 */
 
 #include "tg.h"
-#include <sys/resource.h>
+
+/* macOS gives secondary threads a 512 KB stack by default, which the VLAs in
+ * compute_amplitude()/compute_parameters() (~372 KB for slow watches) can
+ * overflow.  Ensure the computing thread has at least this much stack. */
+#define MIN_COMPUTING_STACK (2 * 1024 * 1024)
 
 static int count_events(const uint64_t *events, int wp, int nevents)
 {
@@ -138,8 +142,7 @@ static void compute_update(struct computer *c)
 		stepmask &= ~BIT(step);
 		analyze_processing_data(c->pdata, step, c->actv->bph, c->actv->la, c->actv->events_from);
 
-		if (ps[step].ready && ps[step].sigma < ps[step].period / 10000
-		    && (c->actv->bph != 0 || ps[step].sigma > 0)) {
+		if (ps[step].ready && ps[step].sigma < ps[step].period / 10000) {
 			// Try next step if it's available
 			if (stepmask & BIT(step+1)) step++;
 		} else {
@@ -387,14 +390,11 @@ struct computer *start_computer(int nominal_sr, int bph, double la, int cal, int
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 
-	struct rlimit rl;
+	/* Only raise the stack size if the platform default is too small; on Linux
+	 * the default already exceeds the minimum, so this is a no-op there. */
 	size_t stack_size;
-	if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != 0 && rl.rlim_cur != RLIM_INFINITY) {
-		stack_size = rl.rlim_cur;
-	} else {
-		stack_size = 8 * 1024 * 1024;  // 8MB fallback
-	}
-	pthread_attr_setstacksize(&attr, stack_size);
+	if (pthread_attr_getstacksize(&attr, &stack_size) == 0 && stack_size < MIN_COMPUTING_STACK)
+		pthread_attr_setstacksize(&attr, MIN_COMPUTING_STACK);
 
 	if (pthread_create(&c->thread, &attr, computing_thread, c)) {
 		error("Unable to initialize computing thread");
