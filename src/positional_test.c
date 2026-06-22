@@ -415,8 +415,10 @@ static gboolean pos_test_draw_callback(GtkWidget *widget, cairo_t *cr,
             }
 
             /* Date/time */
-            time_t now = time(NULL);
-            struct tm *tm_info = localtime(&now);
+            time_t display_time = (pt->state == POS_STATE_COMPLETE && pt->completion_time != 0)
+                                  ? pt->completion_time
+                                  : time(NULL);
+            struct tm *tm_info = localtime(&display_time);
             char datetime[64];
             strftime(datetime, sizeof(datetime), "%Y-%m-%d %H:%M", tm_info);
             cairo_set_source_rgb(cr, 0.7, 0.7, 0.7);
@@ -773,6 +775,7 @@ void pos_test_skip_position(struct positional_test *pt)
 
     if (pt->current_position >= POS_COUNT - 1) {
         pt->state = POS_STATE_COMPLETE;
+        pt->completion_time = time(NULL);
         /* Display results summary and show save button */
         pos_test_show_results(pt);
     } else {
@@ -993,6 +996,7 @@ void pos_test_update(struct positional_test *pt,
 
         if (pt->current_position >= POS_COUNT - 1) {
             pt->state = POS_STATE_COMPLETE;
+            pt->completion_time = time(NULL);
             /* Display results summary and show save button */
             pos_test_show_results(pt);
         } else {
@@ -1219,8 +1223,8 @@ char *pos_test_generate_report(const struct positional_test *pt)
         g_string_append_printf(report, "Watch:      %s\n", pt->watch_name);
 
     /* Date/time */
-    time_t now = time(NULL);
-    struct tm *tm_info = localtime(&now);
+    time_t report_time = pt->completion_time ? pt->completion_time : time(NULL);
+    struct tm *tm_info = localtime(&report_time);
     char datetime[64];
     strftime(datetime, sizeof(datetime), "%Y-%m-%d %H:%M:%S", tm_info);
     g_string_append_printf(report, "Date:       %s\n", datetime);

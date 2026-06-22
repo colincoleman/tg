@@ -6,6 +6,7 @@
 #include <gtk/gtk.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <time.h>
 
 #define POS_COUNT 6
 #define POS_MIN_EVENTS 10
@@ -90,6 +91,9 @@ struct positional_test {
     int cal;                    /* Frozen at test start */
     int nominal_sr;             /* Sample rate */
     char *watch_name;           /* User-entered watch name (may be NULL) */
+
+    /* Wall-clock time when state became COMPLETE; 0 if not yet complete */
+    time_t completion_time;
 
     /* Per-position data */
     struct position_data positions[POS_COUNT];
