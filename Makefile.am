@@ -13,10 +13,12 @@ tg_timer_SOURCES = src/algo.c \
 		   src/interface.c \
 		   src/audio_interface.c \
 		   src/output_panel.c \
+		   src/positional_test.c \
 		   src/serializer.c \
 		   src/filter_interface.c \
 		   src/tppm.c \
-		   src/tg.h 
+		   src/tg.h \
+		   src/positional_test.h 
 
 if PYTHON
 tg_timer_SOURCES += src/python.c
