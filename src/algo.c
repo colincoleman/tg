@@ -1060,3 +1060,68 @@ int analyze_processing_data_cal(struct processing_data *pd, struct calibration_d
 		return NSTEPS-1;
 	return NSTEPS;
 }
+
+/* Build biquad coefficients for a given filter type.  Mirrors the dispatch in
+ * audio.c's _filter_set_coefficients(), kept local so the detector can score
+ * candidate filters without depending on the audio module. */
+static void autotune_set_coefficients(struct filter *f, enum bitype type, double f0_fS, double q, double gain)
+{
+	switch (type) {
+		case HIGHPASS: make_hpq(f, f0_fS, q); break;
+		case LOWPASS: make_lpq(f, f0_fS, q); break;
+		case BANDPASS: make_bp(f, f0_fS, q); break;
+		case NOTCH: make_notch(f, f0_fS, q); break;
+		case ALLPASS: make_ap(f, f0_fS, q); break;
+		case PEAK: make_peak(f, f0_fS, q, gain); break;
+		default: break;
+	}
+}
+
+/* Penalty weight for period jitter in the auto-tune score.  Tunable. */
+#define AUTOTUNE_JITTER_K 100.0
+
+double score_filter_chain(struct processing_buffers *b, const float *raw,
+		const struct biquad_filter *filters, int nfilters, int bph, double la)
+{
+	int i;
+
+	memcpy(b->samples, raw, b->sample_count * sizeof(float));
+
+	for(i = 0; i < nfilters; i++) {
+		if(!filters[i].enabled) continue;
+		struct filter f;
+		autotune_set_coefficients(&f, filters[i].type,
+			(double)filters[i].frequency / b->sample_rate,
+			filters[i].bw, filters[i].gain);
+		run_filter(&f, b->samples, b->sample_count);
+	}
+
+	/* Mirror the live detection path, which filters the raw audio and then
+	 * runs the (normal, non-light) algorithm. */
+	b->last_tic = 0;
+	b->events_from = 0;
+	b->timestamp = b->sample_count;
+	process(b, bph, la, 0);
+
+	if(!b->ready)
+		return -1;
+
+	/* Estimate the residual noise floor from the folded waveform.  process()
+	 * averages every cycle into b->waveform and subtracts its median, so the
+	 * non-pulse bins are what is left of the noise after averaging.  The
+	 * median of |waveform| is a robust noise scale: the tic/toc pulses are a
+	 * small fraction of the bins, so they don't move the median.  Dividing
+	 * the pulse height by this gives a true, scale-invariant SNR that rewards
+	 * removing noise rather than passing the most energy. */
+	const int wf = (int)ceil(b->period);
+	if(wf <= 0)
+		return -1;
+	float *scratch = b->samples_sc; /* free after process(); size 2*sample_count */
+	for(i = 0; i < wf; i++)
+		scratch[i] = fabsf(b->waveform[i]);
+	quickselect(scratch, wf, wf/2);
+	const double noise = scratch[wf/2];
+	if(noise <= 0)
+		return -1;
+	return (b->waveform_max / noise) / (1 + AUTOTUNE_JITTER_K * b->sigma / b->period);
+}
