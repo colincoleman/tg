@@ -18,6 +18,11 @@
 
 #include "tg.h"
 
+/* macOS gives secondary threads a 512 KB stack by default, which the VLAs in
+ * compute_amplitude()/compute_parameters() (~372 KB for slow watches) can
+ * overflow.  Ensure the computing thread has at least this much stack. */
+#define MIN_COMPUTING_STACK (2 * 1024 * 1024)
+
 static int count_events(const uint64_t *events, int wp, int nevents)
 {
 	int i;
@@ -377,11 +382,26 @@ struct computer *start_computer(int nominal_sr, int bph, double la, int cal, int
 	c->clear_trace = 0;
 
 	if(    pthread_mutex_init(&c->mutex, NULL)
-	    || pthread_cond_init(&c->cond, NULL)
-	    || pthread_create(&c->thread, NULL, computing_thread, c)) {
+	    || pthread_cond_init(&c->cond, NULL)) {
 		error("Unable to initialize computing thread");
 		return NULL;
 	}
+
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+
+	/* Only raise the stack size if the platform default is too small; on Linux
+	 * the default already exceeds the minimum, so this is a no-op there. */
+	size_t stack_size;
+	if (pthread_attr_getstacksize(&attr, &stack_size) == 0 && stack_size < MIN_COMPUTING_STACK)
+		pthread_attr_setstacksize(&attr, MIN_COMPUTING_STACK);
+
+	if (pthread_create(&c->thread, &attr, computing_thread, c)) {
+		error("Unable to initialize computing thread");
+		pthread_attr_destroy(&attr);
+		return NULL;
+	}
+	pthread_attr_destroy(&attr);
 
 	return c;
 }

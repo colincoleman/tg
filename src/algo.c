@@ -511,12 +511,17 @@ static int compute_period(struct processing_buffers *b, int bph)
 		}
 		cycle++;
 	}
-	if(count > 0) estimate = sum / count;
+	/* Reject the estimate unless it was confirmed by more than one cycle.  A
+	 * single cycle gives no way to compute a standard deviation, so its period
+	 * can't be trusted - in particular noise in guess mode otherwise yields a
+	 * bogus period that drives oversized allocations downstream.  */
+	if(count <= 1) {
+		debug("insufficient cycles for confident period estimate\n");
+		return 1;
+	}
+	estimate = sum / count;
 	b->period = estimate;
-	if(count > 1)
-		b->sigma = sqrt((sq_sum - count * estimate * estimate)/ (count-1));
-	else
-		b->sigma = 0;	// No std. dev. estimate possible with just 1 sample
+	b->sigma = sqrt((sq_sum - count * estimate * estimate)/ (count-1));
 	return 0;
 }
 
