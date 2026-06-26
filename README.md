@@ -5,6 +5,11 @@ source code of tg is available at
 [https://github.com/xyzzy42/tg](https://github.com/xyzzy42/tg) and its
 copyright belongs to the respective contributors.
 
+This repository is a community-maintained fork that carries additional fixes
+and features on top of the upstream
+[xyzzy42/tg](https://github.com/xyzzy42/tg) tree, with pre-built macOS
+binaries published via a Homebrew tap (see [Macintosh](#macintosh) below).
+
 A comprehensive [user manual](docs/user-manual.md) is available covering
 installation, configuration, operation, and troubleshooting. Additional
 discussion can be found in this
@@ -29,23 +34,28 @@ from the last five plus years.
 
 ### Macintosh
 
-A formula for the Homebrew package manager has been prepared by GitHub user
-[dmnc](https://github.com/dmnc) and then updated by
-[xyzzy42](https://github.com/xyzzy42).  To use it, you need to install Homebrew
-first (instructions on http://brew.sh).
+This fork is distributed as a [Homebrew](http://brew.sh) tap, built
+automatically for each release.  You need Homebrew installed first
+(instructions on http://brew.sh).
 
-Then run the following command to check everything is set up correctly
-and follow any instructions it gives you.
+Add the tap, trust it, and install:
 
-	brew doctor
+	brew tap colincoleman/tg
+	brew trust colincoleman/tg
+	brew install tg-timer
 
-To install tg, run:
-
-	brew install --HEAD xyzzy42/horology/tg-timer
+The `brew trust` step is required by recent versions of Homebrew before it
+will install a formula from a third-party tap.
 
 You can now launch tg by typing:
 
 	tg-timer &
+
+To upgrade later, run `brew update && brew upgrade tg-timer`.
+
+The original formula was prepared by GitHub user
+[dmnc](https://github.com/dmnc) and later updated by
+[xyzzy42](https://github.com/xyzzy42); the tap above tracks this fork.
 
 ### Debian or Debian-based (e.g. Mint, Ubuntu)
 
