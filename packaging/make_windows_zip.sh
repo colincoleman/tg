@@ -29,14 +29,26 @@ rm -rf win-zip
 mkdir -p "$STAGE"
 cp tg-timer.exe "$STAGE"/
 
-# Copy every dependent DLL that resolves into the MinGW prefix.  ldd reports
-# Windows-style paths (e.g. /mingw64/bin/libgtk-3-0.dll); pull those in.
+# Copy every dependent DLL that resolves into the MinGW prefix.  Use ntldd,
+# which (unlike ldd) reliably resolves the dependencies of a MinGW PE binary
+# and, with -R, walks them recursively so transitive DLLs are included too.
 echo "Collecting dependent DLLs..."
-ldd "$STAGE"/tg-timer.exe \
-	| awk '/\/mingw64\/bin\// {print $3}' \
+# ntldd -R prints "name => C:\...\mingw64\bin\name.dll (0xbase)". Normalise the
+# backslashes to slashes, then the resolved path is the third field.
+ntldd -R "$STAGE"/tg-timer.exe \
+	| tr '\\' '/' \
+	| awk 'tolower($0) ~ /mingw64\/bin\// {print $3}' \
+	| sort -u \
 	| while read -r dll; do
-		cp -u "$dll" "$STAGE"/
+		cp -u "$dll" "$STAGE"/ 2>/dev/null || true
 	done
+
+ndll=$(ls -1 "$STAGE"/*.dll 2>/dev/null | wc -l)
+echo "Bundled $ndll DLLs."
+if [ "$ndll" -lt 10 ]; then
+	echo "ERROR: too few DLLs bundled ($ndll); dependency collection failed." >&2
+	exit 1
+fi
 
 # GDK-Pixbuf image loaders (needed for icons/PNGs); regenerate the cache so it
 # references the bundled loader location.
