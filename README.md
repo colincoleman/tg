@@ -60,15 +60,22 @@ The original formula was prepared by GitHub user
 ### Debian or Debian-based (e.g. Mint, Ubuntu)
 
 A binary `.deb` package is built for each release of this fork and attached to
-the [GitHub Releases page](https://github.com/colincoleman/tg/releases).
-Download the latest `tg-timer_*_amd64.deb` and install it with:
+the [GitHub Releases page](https://github.com/colincoleman/tg/releases), for
+both `amd64` (Intel/AMD PCs) and `arm64` (Apple Silicon, Raspberry Pi, ARM
+servers).  Check your architecture with `dpkg --print-architecture`, download
+the matching package, and install it with `apt`, for example:
 
 ```sh
+# amd64 (Intel/AMD):
 sudo apt install ./tg-timer_*_amd64.deb
+# arm64 (Apple Silicon, Raspberry Pi, ...):
+sudo apt install ./tg-timer_*_arm64.deb
 ```
 
 `apt` will pull in the required GTK, PortAudio, and FFTW runtime libraries
-automatically.  You can then launch tg by typing `tg-timer &`.
+automatically.  The packages are built on Ubuntu 22.04, so they install on
+22.04 and newer (including Debian-based derivatives).  You can then launch tg
+by typing `tg-timer &`.
 
 ### Fedora, CentOS or other Redhat-based
 
