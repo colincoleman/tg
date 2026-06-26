@@ -17,7 +17,7 @@ jobs:
       - name: Build source tarball
         run: |
           ./autogen.sh
-          ./configure
+          ./configure --without-python
           make dist
 
       - name: Get version
