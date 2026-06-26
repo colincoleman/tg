@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: brew install gtk+3 portaudio fftw
+        run: brew install autoconf automake gtk+3 portaudio fftw
 
       - name: Build source tarball
         run: |
