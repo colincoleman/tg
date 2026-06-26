@@ -25,12 +25,15 @@ systems. See the sub-sections below for the details.
 
 ### Windows
 
-Binaries can be found at https://tg.ciovil.li
+A portable Windows build is produced for each release of this fork and
+attached to the
+[GitHub Releases page](https://github.com/colincoleman/tg/releases).  Download
+`tg-timer-<version>-windows-x64.zip`, extract it anywhere, and run
+`tg-timer.exe` from the extracted folder.  No installation is required; the ZIP
+already contains all of the GTK, PortAudio, and FFTW runtime files.
 
-Unfortunately, these packages have not been updated since 2017.  Help from
-someone who can build the Windows installer version would be appreciated.
-You'll need to [build from source](#compiling-on-windows) to get any features
-from the last five plus years.
+This is a 64-bit (x86_64) build.  It runs natively on Intel/AMD Windows and
+also on ARM Windows 11, which transparently emulates x86_64 applications.
 
 ### Macintosh
 
