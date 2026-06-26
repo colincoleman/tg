@@ -59,9 +59,16 @@ The original formula was prepared by GitHub user
 
 ### Debian or Debian-based (e.g. Mint, Ubuntu)
 
-Binary .deb packages can be downloaded from https://tg.ciovil.li
+A binary `.deb` package is built for each release of this fork and attached to
+the [GitHub Releases page](https://github.com/colincoleman/tg/releases).
+Download the latest `tg-timer_*_amd64.deb` and install it with:
 
-Unfortunately, these packages have not been updated since 2017.
+```sh
+sudo apt install ./tg-timer_*_amd64.deb
+```
+
+`apt` will pull in the required GTK, PortAudio, and FFTW runtime libraries
+automatically.  You can then launch tg by typing `tg-timer &`.
 
 ### Fedora, CentOS or other Redhat-based
 

@@ -62,7 +62,7 @@ operational parameters.
 
 %build
 autoreconf -fi
-%configure
+%configure --without-python
 %make_build
 
 %install
