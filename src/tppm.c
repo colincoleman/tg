@@ -265,7 +265,9 @@ struct tppm* tppm_init(unsigned chunk_size, unsigned max_age)
 		return NULL;
 	const size_t bufsize = chunk_size * sizeof(*tppm->buffer);
 #ifdef HAVE__ALIGNED_MALLOC
-	tppm->buffer = _aligned_malloc(32, (bufsize + 31) & ~0x1f);
+	/* _aligned_malloc() takes (size, alignment), the reverse of C11
+	 * aligned_alloc(alignment, size). */
+	tppm->buffer = _aligned_malloc((bufsize + 31) & ~0x1f, 32);
 #else
 	tppm->buffer = aligned_alloc(32, (bufsize + 31) & ~0x1f);
 #endif
