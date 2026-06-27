@@ -24,7 +24,7 @@ make
 # Also build the console (-mconsole) debug variant so that, if the GUI build
 # fails to start, running tg-timer-dbg.exe from a terminal surfaces the actual
 # GLib/GTK error instead of a silent abort.
-make tg-timer-dbg
+make tg-timer-dbg.exe
 
 # --- Stage the bundle ------------------------------------------------------
 # Standard Windows GTK layout: the exe and all DLLs sit at the root, with
