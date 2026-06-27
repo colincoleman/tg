@@ -65,14 +65,20 @@ if [ "$ndll" -lt 10 ]; then
 	exit 1
 fi
 
-# Regenerate the loader cache with paths RELATIVE to the bundle root, so it
-# works wherever the user extracts the ZIP.  Passing relative arguments makes
-# gdk-pixbuf-query-loaders write relative entries; at runtime GTK resolves them
-# against the directory holding the gdk_pixbuf DLL (the bundle root).  The
-# previous absolute cache baked in the CI build path and broke on other machines.
+# Regenerate the loader cache, then rewrite its entries to be RELATIVE to the
+# bundle root so it works wherever the user extracts the ZIP.  gdk-pixbuf-query-
+# loaders always writes absolute paths (canonicalised against the build dir), so
+# we strip that build-dir prefix afterwards.  At runtime MSYS2's gdk-pixbuf
+# resolves relative loader paths against the directory holding the gdk_pixbuf
+# DLL (the bundle root).  The previous absolute cache baked in the CI path.
+cache="$STAGE"/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
 ( cd "$STAGE" \
 	&& gdk-pixbuf-query-loaders lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
 		> lib/gdk-pixbuf-2.0/2.10.0/loaders.cache )
+stage_abs=$(cd "$STAGE" && pwd -W)
+sed -i "s|\"$stage_abs/|\"|g" "$cache"
+echo "Loader cache entries:"
+grep -E '^"' "$cache" || true
 
 # Compiled GSettings schemas (GTK aborts at startup without these).
 mkdir -p "$STAGE"/share/glib-2.0/schemas
