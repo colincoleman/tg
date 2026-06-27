@@ -35,13 +35,22 @@ cp tg-timer.exe "$STAGE"/
 # Diagnostic console build; harmless to ship and lets users capture errors.
 cp tg-timer-dbg.exe "$STAGE"/
 
-# Copy every dependent DLL that resolves into the MinGW prefix.  Use ntldd,
-# which (unlike ldd) reliably resolves the dependencies of a MinGW PE binary
-# and, with -R, walks them recursively so transitive DLLs are included too.
+# Copy the GDK-Pixbuf image loaders into the bundle first, so their own
+# dependencies (e.g. the SVG loader needs librsvg/libxml2) are picked up by the
+# DLL scan below -- the loaders are dlopen()ed at runtime, not linked into the
+# exe, so scanning only the exe would miss them.
+mkdir -p "$STAGE"/lib/gdk-pixbuf-2.0
+cp -r "$MINGW"/lib/gdk-pixbuf-2.0/* "$STAGE"/lib/gdk-pixbuf-2.0/
+
+# Collect every dependent DLL that resolves into the MinGW prefix.  Use ntldd
+# (-R, recursive); unlike ldd it reliably resolves MinGW PE dependencies.  Scan
+# the exe and every pixbuf loader.  ntldd prints "name => C:\...\mingw64\bin\
+# name.dll (0xbase)"; normalise backslashes, then the path is the third field.
 echo "Collecting dependent DLLs..."
-# ntldd -R prints "name => C:\...\mingw64\bin\name.dll (0xbase)". Normalise the
-# backslashes to slashes, then the resolved path is the third field.
-ntldd -R "$STAGE"/tg-timer.exe \
+for bin in "$STAGE"/tg-timer.exe \
+	   "$STAGE"/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
+	ntldd -R "$bin"
+done \
 	| tr '\\' '/' \
 	| awk 'tolower($0) ~ /mingw64\/bin\// {print $3}' \
 	| sort -u \
@@ -56,13 +65,14 @@ if [ "$ndll" -lt 10 ]; then
 	exit 1
 fi
 
-# GDK-Pixbuf image loaders (needed for icons/PNGs); regenerate the cache so it
-# references the bundled loader location.
-mkdir -p "$STAGE"/lib/gdk-pixbuf-2.0
-cp -r "$MINGW"/lib/gdk-pixbuf-2.0/* "$STAGE"/lib/gdk-pixbuf-2.0/
-GDK_PIXBUF_MODULEDIR="$STAGE"/lib/gdk-pixbuf-2.0/2.10.0/loaders \
-	gdk-pixbuf-query-loaders \
-	> "$STAGE"/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
+# Regenerate the loader cache with paths RELATIVE to the bundle root, so it
+# works wherever the user extracts the ZIP.  Passing relative arguments makes
+# gdk-pixbuf-query-loaders write relative entries; at runtime GTK resolves them
+# against the directory holding the gdk_pixbuf DLL (the bundle root).  The
+# previous absolute cache baked in the CI build path and broke on other machines.
+( cd "$STAGE" \
+	&& gdk-pixbuf-query-loaders lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
+		> lib/gdk-pixbuf-2.0/2.10.0/loaders.cache )
 
 # Compiled GSettings schemas (GTK aborts at startup without these).
 mkdir -p "$STAGE"/share/glib-2.0/schemas
