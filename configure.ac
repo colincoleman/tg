@@ -8,7 +8,12 @@ AC_PROG_CC
 AC_LANG(C)
 AC_CHECK_LIB([pthread], [pthread_mutex_init], [], [AC_MSG_ERROR([pthread not found])])
 AC_CHECK_LIB([m], [sqrt], [], [AC_MSG_ERROR([libm not found])])
-AC_CHECK_FUNCS(aligned_alloc, [], [AC_CHECK_FUNCS(_aligned_malloc)])
+# Check for both aligned allocators.  On MinGW/Windows aligned_alloc() exists
+# but is a wrapper around _aligned_malloc(), whose memory must be released with
+# _aligned_free() rather than free().  Detecting both lets tppm.c prefer the
+# matched _aligned_malloc()/_aligned_free() pair (see its HAVE__ALIGNED_MALLOC
+# branch) so the Windows build frees aligned memory correctly.
+AC_CHECK_FUNCS([_aligned_malloc aligned_alloc])
 PKG_CHECK_MODULES([GTK], [gtk+-3.0 glib-2.0])
 PKG_CHECK_MODULES([PORTAUDIO], [portaudio-2.0])
 PKG_CHECK_MODULES([FFTW], [fftw3f])
