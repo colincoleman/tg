@@ -21,10 +21,6 @@ STAGE=win-zip/tg-timer
 ./autogen.sh
 ./configure --without-python
 make
-# Also build the console (-mconsole) debug variant so that, if the GUI build
-# fails to start, running tg-timer-dbg.exe from a terminal surfaces the actual
-# GLib/GTK error instead of a silent abort.
-make tg-timer-dbg.exe
 
 # --- Stage the bundle ------------------------------------------------------
 # Standard Windows GTK layout: the exe and all DLLs sit at the root, with
@@ -32,8 +28,6 @@ make tg-timer-dbg.exe
 rm -rf win-zip
 mkdir -p "$STAGE"
 cp tg-timer.exe "$STAGE"/
-# Diagnostic console build; harmless to ship and lets users capture errors.
-cp tg-timer-dbg.exe "$STAGE"/
 
 # Copy the GDK-Pixbuf image loaders into the bundle first, so their own
 # dependencies (e.g. the SVG loader needs librsvg/libxml2) are picked up by the
