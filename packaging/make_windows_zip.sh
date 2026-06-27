@@ -21,6 +21,10 @@ STAGE=win-zip/tg-timer
 ./autogen.sh
 ./configure --without-python
 make
+# Also build the console (-mconsole) debug variant so that, if the GUI build
+# fails to start, running tg-timer-dbg.exe from a terminal surfaces the actual
+# GLib/GTK error instead of a silent abort.
+make tg-timer-dbg
 
 # --- Stage the bundle ------------------------------------------------------
 # Standard Windows GTK layout: the exe and all DLLs sit at the root, with
@@ -28,6 +32,8 @@ make
 rm -rf win-zip
 mkdir -p "$STAGE"
 cp tg-timer.exe "$STAGE"/
+# Diagnostic console build; harmless to ship and lets users capture errors.
+cp tg-timer-dbg.exe "$STAGE"/
 
 # Copy every dependent DLL that resolves into the MinGW prefix.  Use ntldd,
 # which (unlike ldd) reliably resolves the dependencies of a MinGW PE binary
