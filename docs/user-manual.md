@@ -318,6 +318,19 @@ When Python support is available (matplotlib, scipy), the dialog includes a
 frequency response graph showing the effect of the selected filter or the entire
 chain. Enable via the checkbox in the graph frame.
 
+### Auto-tune
+
+The **Auto-tune** button on the Filter Chain toolbar chooses a filter chain for
+you. With a watch running on the microphone, it captures a few seconds of audio
+with the existing filters bypassed, then searches for the high-pass/low-pass
+combination that produces the cleanest, most consistent beat detection, and
+replaces the chain with the result.
+
+Auto-tune deliberately favours a wide passband over a tight band-pass, so the
+chosen filters stay robust as the watch is moved between positions. If no tick
+is detected during the capture, or the current settings already look optimal, it
+reports this and leaves the chain unchanged.
+
 ## 8. Signal Analysis
 
 Open from the menu: **Signal**.
@@ -338,7 +351,54 @@ Can show the spectral content of the last tic, last toc, or a configurable time
 window (0.1–32.0 seconds). Useful for identifying the tick's frequency signature
 or verifying filter effectiveness.
 
-## 9. Saving and Loading Data
+## 9. Positional Test
+
+A positional test measures how a watch's rate, beat error, and amplitude change
+across the six standard horological positions. The spread between positions —
+especially in rate and amplitude — indicates how strongly the movement is
+affected by gravity, which is a key sign of its condition and regulation.
+
+Start a test with the **Full Test** button in the main window. While a test is
+running, the same button becomes **Cancel Test**.
+
+### Configuration
+
+The configuration dialog collects:
+
+| Field | Description |
+|-------|-------------|
+| Watch Name | Optional label stored with the results |
+| Position Duration | How long to measure each position (30–600 s, default 60) |
+| Averaging Window | Window used to compute each position's averaged result (5–60 s, default 15). Must be shorter than the position duration |
+
+The dialog also shows the current BPH, lift angle, and calibration so you can
+confirm they are correct before starting. A live signal is required: if no tick
+is detected, the test will not start.
+
+### Running the Test
+
+The test steps through the standard positions in order:
+
+1. Dial up
+2. Dial down
+3. Crown up
+4. Crown down
+5. Crown left
+6. Crown right
+
+For each position, place the watch as indicated and leave it undisturbed. A
+countdown shows the remaining measurement time while the readings are collected.
+When a position finishes, the program pauses and prompts you to reposition the
+watch; move it to the next position and click **Continue** to resume. Repeat
+until all six positions are done.
+
+### Results
+
+Progress and results are shown on a dedicated **Positional Test** tab, with one
+lane per position so you can compare them at a glance. When the test completes,
+use **Save Report** to write the results out for your records.
+
+## 10. Saving and Loading Data
 
 tg-timer uses the `.tgj` file format (JSON-based) to store snapshots.
 
@@ -354,7 +414,7 @@ tg-timer session1.tgj session2.tgj
 On Linux desktops, the MIME type `application/x-tg-timer-data` is registered for
 `.tgj` files.
 
-## 10. Configuration
+## 11. Configuration
 
 tg-timer automatically saves settings to `tg-timer.ini`:
 
@@ -366,7 +426,7 @@ tg-timer automatically saves settings to `tg-timer.ini`:
 
 Settings are saved periodically (every 10 seconds if changed) and on exit.
 
-## 11. Light Algorithm Mode
+## 12. Light Algorithm Mode
 
 Trades measurement precision for lower CPU usage by decimating the audio (processing
 every other sample, halving the effective sample rate). Toggle via the "Light
@@ -375,7 +435,7 @@ algorithm" checkbox in the command menu.
 Toggling mid-measurement clears all current data — take a snapshot first if you
 want to preserve it.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### No Signal (0 bars)
 
@@ -422,7 +482,7 @@ Report issues at:
 Include your OS/version, how tg-timer was installed, the exact error, and steps to
 reproduce.
 
-## 13. Glossary
+## 14. Glossary
 
 **Amplitude** — Angular swing of the balance wheel (degrees). Healthy: 180°–315°.
 
