@@ -427,8 +427,8 @@ static gboolean pos_test_draw_callback(GtkWidget *widget, cairo_t *cr,
             ry += rfont + 6;
 
             /* Config */
-            snprintf(rbuf, sizeof(rbuf), "BPH: %d  LA: %.0f\u00b0  Cal: %d",
-                     pt->bph, pt->la, pt->cal);
+            snprintf(rbuf, sizeof(rbuf), "BPH: %d  LA: %.0f\u00b0  Cal: %+.1f",
+                     pt->bph, pt->la, pt->cal / 10.0);
             cairo_move_to(cr, rx, ry);
             cairo_show_text(cr, rbuf);
             ry += rfont + 4;
@@ -1232,7 +1232,7 @@ char *pos_test_generate_report(const struct positional_test *pt)
     /* Configuration values */
     g_string_append_printf(report, "BPH:        %d\n", pt->bph);
     g_string_append_printf(report, "Lift Angle: %.0f deg\n", pt->la);
-    g_string_append_printf(report, "Calibration: %+.1f s/d\n", (double)pt->cal);
+    g_string_append_printf(report, "Calibration: %+.1f s/d\n", pt->cal / 10.0);
     g_string_append_printf(report, "Duration:   %ds (settling: %ds)\n",
                            pt->position_duration, pt->settling_time);
 
