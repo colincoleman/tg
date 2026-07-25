@@ -192,10 +192,51 @@ static void on_shutdown(GApplication *app, void *p)
 
 static void controls_active(struct main_window *w, int active);
 
+/* Click on a swim-lane row: re-run that position if it's already been measured
+ * and no measurement is currently running. */
+static gboolean pos_test_lane_clicked(GtkWidget *widget, GdkEventButton *event,
+				      gpointer data)
+{
+	struct main_window *w = (struct main_window *)data;
+	struct positional_test *pt = w->pos_test;
+
+	if (!pt || event->button != 1 || pt->state == POS_STATE_ACTIVE)
+		return FALSE;
+
+	GtkAllocation alloc;
+	gtk_widget_get_allocation(widget, &alloc);
+	if (alloc.height <= 0)
+		return FALSE;
+
+	int lane = (int)(event->y / ((double)alloc.height / POS_COUNT));
+	if (lane < 0 || lane >= POS_COUNT || !pt->positions[lane].measured)
+		return FALSE;
+
+	pos_test_rerun_position(pt, lane);
+	if (pt->state == POS_STATE_ACTIVE) { /* re-run actually started */
+		controls_active(w, 0);
+		gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Cancel Redo");
+	}
+	return TRUE;
+}
+
 static void full_test_button_clicked(GtkButton *button, gpointer data)
 {
 	UNUSED(button);
 	struct main_window *w = (struct main_window *)data;
+
+	/* During a single-position re-run, this button aborts just the re-run and
+	 * restores the previous result, not the whole test. */
+	if (w->pos_test != NULL && w->pos_test->single_rerun) {
+		pos_test_abort_rerun(w->pos_test);
+		if (w->pos_test->state == POS_STATE_COMPLETE) {
+			controls_active(w, 1);
+			gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Full Test");
+		} else {
+			gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Cancel Test");
+		}
+		return;
+	}
 
 	/* If a test is already running, this is a "Cancel Test" click */
 	if (w->pos_test != NULL && w->pos_test->state != POS_STATE_COMPLETE) {
@@ -312,6 +353,10 @@ static void full_test_button_clicked(GtkButton *button, gpointer data)
 		else
 			w->pos_test->watch_name = NULL;
 		pos_test_create_tab(w->pos_test);
+		/* Allow clicking a completed lane to re-run that one position */
+		gtk_widget_add_events(w->pos_test->drawing_area, GDK_BUTTON_PRESS_MASK);
+		g_signal_connect(w->pos_test->drawing_area, "button-press-event",
+				 G_CALLBACK(pos_test_lane_clicked), w);
 		pos_test_start(w->pos_test);
 		/* Initialize last_event_seen to current newest event so we only
 		 * collect events going forward (avoid plotting old data) */
@@ -433,11 +478,14 @@ static guint kick_computer(struct main_window *w)
 				s->amps, s->amps_time, s->amps_wp, s->amps_count,
 				s->signal, s->nominal_sr);
 
-		/* Check if test just completed */
+		/* Check if test just completed (or a re-run just finished) */
 		if (w->pos_test->state == POS_STATE_COMPLETE) {
 			controls_active(w, 1);
 			gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Full Test");
 			/* Stay on the positional test tab so user can see results */
+		} else if (w->pos_test->state == POS_STATE_TRANSITION) {
+			/* A re-run that returned to the paused state — restore label. */
+			gtk_button_set_label(GTK_BUTTON(w->full_test_button), "Cancel Test");
 		}
 	}
 
