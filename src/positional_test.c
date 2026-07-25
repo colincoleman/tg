@@ -9,6 +9,44 @@
 /* Forward declarations for static functions */
 static void pos_test_show_results(struct positional_test *pt);
 
+/* Allocate the per-position sample/event arrays and reset counts.  Returns
+ * false (after freeing any partial allocation) if out of memory. */
+static bool pos_data_alloc_arrays(struct position_data *pd)
+{
+    pd->events = malloc(POS_EVENTS_INITIAL * sizeof(uint64_t));
+    pd->events_tictoc = malloc(POS_EVENTS_INITIAL * sizeof(unsigned char));
+    pd->event_count = 0;
+    pd->event_capacity = POS_EVENTS_INITIAL;
+
+    pd->amps = malloc(POS_AMPS_INITIAL * sizeof(float));
+    pd->amps_time = malloc(POS_AMPS_INITIAL * sizeof(uint64_t));
+    pd->amp_count = 0;
+    pd->amp_capacity = POS_AMPS_INITIAL;
+
+    pd->rate_samples = malloc(POS_SAMPLES_INITIAL * sizeof(double));
+    pd->be_samples = malloc(POS_SAMPLES_INITIAL * sizeof(double));
+    pd->amp_samples = malloc(POS_SAMPLES_INITIAL * sizeof(double));
+    pd->sample_times = malloc(POS_SAMPLES_INITIAL * sizeof(int64_t));
+    pd->sample_count = 0;
+    pd->sample_capacity = POS_SAMPLES_INITIAL;
+
+    return pd->events && pd->events_tictoc && pd->amps && pd->amps_time
+        && pd->rate_samples && pd->be_samples && pd->amp_samples && pd->sample_times;
+}
+
+/* Free the per-position arrays allocated by pos_data_alloc_arrays(). */
+static void pos_data_free_arrays(struct position_data *pd)
+{
+    free(pd->events);
+    free(pd->events_tictoc);
+    free(pd->amps);
+    free(pd->amps_time);
+    free(pd->rate_samples);
+    free(pd->be_samples);
+    free(pd->amp_samples);
+    free(pd->sample_times);
+}
+
 struct positional_test *pos_test_create(struct main_window *w,
                                         int duration, int settling)
 {
@@ -32,37 +70,9 @@ struct positional_test *pos_test_create(struct main_window *w,
 
     /* Allocate per-position data arrays */
     for (int i = 0; i < POS_COUNT; i++) {
-        struct position_data *pd = &pt->positions[i];
-
-        pd->events = malloc(POS_EVENTS_INITIAL * sizeof(uint64_t));
-        pd->events_tictoc = malloc(POS_EVENTS_INITIAL * sizeof(unsigned char));
-        pd->event_count = 0;
-        pd->event_capacity = POS_EVENTS_INITIAL;
-
-        pd->amps = malloc(POS_AMPS_INITIAL * sizeof(float));
-        pd->amps_time = malloc(POS_AMPS_INITIAL * sizeof(uint64_t));
-        pd->amp_count = 0;
-        pd->amp_capacity = POS_AMPS_INITIAL;
-
-        pd->rate_samples = malloc(POS_SAMPLES_INITIAL * sizeof(double));
-        pd->be_samples = malloc(POS_SAMPLES_INITIAL * sizeof(double));
-        pd->amp_samples = malloc(POS_SAMPLES_INITIAL * sizeof(double));
-        pd->sample_times = malloc(POS_SAMPLES_INITIAL * sizeof(int64_t));
-        pd->sample_count = 0;
-        pd->sample_capacity = POS_SAMPLES_INITIAL;
-
-        if (!pd->events || !pd->events_tictoc || !pd->amps || !pd->amps_time
-            || !pd->rate_samples || !pd->be_samples || !pd->amp_samples || !pd->sample_times) {
-            for (int j = 0; j <= i; j++) {
-                free(pt->positions[j].events);
-                free(pt->positions[j].events_tictoc);
-                free(pt->positions[j].amps);
-                free(pt->positions[j].amps_time);
-                free(pt->positions[j].rate_samples);
-                free(pt->positions[j].be_samples);
-                free(pt->positions[j].amp_samples);
-                free(pt->positions[j].sample_times);
-            }
+        if (!pos_data_alloc_arrays(&pt->positions[i])) {
+            for (int j = 0; j <= i; j++)
+                pos_data_free_arrays(&pt->positions[j]);
             free(pt);
             return NULL;
         }
@@ -136,8 +146,10 @@ static gboolean pos_test_draw_callback(GtkWidget *widget, cairo_t *cr,
         struct position_data *pd = &pt->positions[lane];
         bool is_active = (pt->state == POS_STATE_ACTIVE &&
                           lane == pt->current_position);
-        bool is_completed = (lane < pt->current_position ||
-                             pt->state == POS_STATE_COMPLETE);
+        /* A lane is "completed" once its phase has been measured.  Using the
+         * per-position flag (rather than the index) keeps every measured lane
+         * shown while an earlier position is being re-run. */
+        bool is_completed = pt->positions[lane].measured && !is_active;
 
         /* 3a. Lane background: highlight active or completed lanes */
         if (is_active || (is_completed && pd->event_count > 0)) {
@@ -668,17 +680,12 @@ void pos_test_destroy(struct positional_test *pt)
         return;
 
     /* Free per-position data arrays */
-    for (int i = 0; i < POS_COUNT; i++) {
-        struct position_data *pd = &pt->positions[i];
-        free(pd->events);
-        free(pd->events_tictoc);
-        free(pd->amps);
-        free(pd->amps_time);
-        free(pd->rate_samples);
-        free(pd->be_samples);
-        free(pd->amp_samples);
-        free(pd->sample_times);
-    }
+    for (int i = 0; i < POS_COUNT; i++)
+        pos_data_free_arrays(&pt->positions[i]);
+
+    /* If a re-run was in flight, its backup owns a set of arrays too. */
+    if (pt->single_rerun)
+        pos_data_free_arrays(&pt->rerun_backup);
 
     /* Destroy notebook tab widget if it exists */
     if (pt->notebook_tab) {
@@ -742,6 +749,26 @@ void pos_test_continue(struct positional_test *pt)
     pt->state = POS_STATE_ACTIVE;
 }
 
+/* Finish an in-progress single re-run: discard the backup, restore the progress
+ * pointer and the state the test was in, and refresh the display.  The
+ * re-measured position keeps its freshly-computed result. */
+static void pos_test_finish_rerun(struct positional_test *pt)
+{
+    pos_data_free_arrays(&pt->rerun_backup);
+    memset(&pt->rerun_backup, 0, sizeof(pt->rerun_backup));
+
+    pt->current_position = pt->rerun_return_position;
+    pt->state = pt->rerun_return_state;
+    pt->single_rerun = false;
+
+    if (pt->state == POS_STATE_COMPLETE) {
+        pt->completion_time = time(NULL);
+        pos_test_show_results(pt);
+    } else if (pt->state == POS_STATE_TRANSITION && pt->continue_button) {
+        gtk_widget_show(pt->continue_button);
+    }
+}
+
 void pos_test_skip_position(struct positional_test *pt)
 {
     if (!pt)
@@ -749,6 +776,14 @@ void pos_test_skip_position(struct positional_test *pt)
 
     struct position_data *pd = &pt->positions[pt->current_position];
     pd->valid = false;
+    pd->measured = true;
+
+    if (pt->single_rerun) {
+        /* A skipped re-run leaves this position invalid and returns to where
+         * the test was, rather than advancing. */
+        pos_test_finish_rerun(pt);
+        return;
+    }
 
     if (pt->current_position >= POS_COUNT - 1) {
         pt->state = POS_STATE_COMPLETE;
@@ -758,6 +793,87 @@ void pos_test_skip_position(struct positional_test *pt)
     } else {
         pt->state = POS_STATE_TRANSITION;
     }
+}
+
+void pos_test_rerun_position(struct positional_test *pt, int pos)
+{
+    if (!pt || pos < 0 || pos >= POS_COUNT)
+        return;
+    /* Only re-run an already-measured position, and never while a measurement
+     * is already running. */
+    if (pt->state == POS_STATE_ACTIVE || pt->single_rerun)
+        return;
+    if (!pt->positions[pos].measured)
+        return;
+
+    /* Remember where to return, and back up the position's data (the backup
+     * takes ownership of the existing arrays). */
+    pt->rerun_return_position = pt->current_position;
+    pt->rerun_return_state = pt->state;
+    pt->rerun_backup = pt->positions[pos];
+
+    /* Give the position a fresh set of arrays to accumulate into. */
+    struct position_data *pd = &pt->positions[pos];
+    if (!pos_data_alloc_arrays(pd)) {
+        /* Out of memory: undo and stay put. */
+        pt->positions[pos] = pt->rerun_backup;
+        memset(&pt->rerun_backup, 0, sizeof(pt->rerun_backup));
+        return;
+    }
+    pd->rate = pd->beat_error = pd->amplitude = 0;
+    pd->valid = false;
+    pd->measured = false;
+    pd->elapsed_measurement = 0;
+
+    pt->current_position = pos;
+    pt->single_rerun = true;
+
+    /* Set up timing for the re-run phase. */
+    pd->phase_start_time = g_get_monotonic_time();
+    pd->settling_end_time = pd->phase_start_time +
+        (int64_t)pt->settling_time * 1000000;
+    memset(&pt->sig_loss, 0, sizeof(pt->sig_loss));
+
+    /* Only collect events/amps from now on. */
+    if (pt->main_win && pt->main_win->active_snapshot) {
+        struct snapshot *s = pt->main_win->active_snapshot;
+        if (s->events_count > 0 && s->events[s->events_wp])
+            pt->last_event_seen = s->events[s->events_wp];
+        if (s->amps_count > 0 && s->amps_time[s->amps_wp])
+            pt->last_amp_seen = s->amps_time[s->amps_wp];
+    }
+
+    pt->state = POS_STATE_ACTIVE;
+
+    /* Hide Continue/Save while re-measuring. */
+    if (pt->continue_button)
+        gtk_widget_hide(pt->continue_button);
+    if (pt->save_button)
+        gtk_widget_hide(pt->save_button);
+    if (pt->drawing_area)
+        gtk_widget_queue_draw(pt->drawing_area);
+}
+
+void pos_test_abort_rerun(struct positional_test *pt)
+{
+    if (!pt || !pt->single_rerun)
+        return;
+
+    /* Discard the partial re-run and restore the previous data/result. */
+    pos_data_free_arrays(&pt->positions[pt->current_position]);
+    pt->positions[pt->current_position] = pt->rerun_backup;
+    memset(&pt->rerun_backup, 0, sizeof(pt->rerun_backup));
+
+    pt->current_position = pt->rerun_return_position;
+    pt->state = pt->rerun_return_state;
+    pt->single_rerun = false;
+
+    if (pt->state == POS_STATE_COMPLETE)
+        pos_test_show_results(pt);
+    else if (pt->state == POS_STATE_TRANSITION && pt->continue_button)
+        gtk_widget_show(pt->continue_button);
+    if (pt->drawing_area)
+        gtk_widget_queue_draw(pt->drawing_area);
 }
 
 void pos_test_cancel(struct positional_test *pt)
@@ -970,8 +1086,13 @@ void pos_test_update(struct positional_test *pt,
         /* Position phase complete — compute results */
         pos_test_compute_position_results(pd, pt->bph, pt->la, pt->cal,
                                           pt->nominal_sr, pt->settling_time);
+        pd->measured = true;
 
-        if (pt->current_position >= POS_COUNT - 1) {
+        if (pt->single_rerun) {
+            /* Keep the freshly measured result and return to where the test
+             * was before the re-run. */
+            pos_test_finish_rerun(pt);
+        } else if (pt->current_position >= POS_COUNT - 1) {
             pt->state = POS_STATE_COMPLETE;
             pt->completion_time = time(NULL);
             /* Display results summary and show save button */
@@ -995,10 +1116,11 @@ void pos_test_update(struct positional_test *pt,
 
         if (pt->status_label) {
             char buf[128];
+            const char *redo = pt->single_rerun ? "Redo " : "";
             if (elapsed < pt->settling_time) {
-                snprintf(buf, sizeof(buf), "%s - Settling... %ds", name, countdown);
+                snprintf(buf, sizeof(buf), "%s%s - Settling... %ds", redo, name, countdown);
             } else {
-                snprintf(buf, sizeof(buf), "%s - %ds", name, countdown);
+                snprintf(buf, sizeof(buf), "%s%s - %ds", redo, name, countdown);
             }
             gtk_label_set_text(GTK_LABEL(pt->status_label), buf);
         }
