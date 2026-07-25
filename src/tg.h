@@ -118,7 +118,8 @@ struct processing_buffers {
 struct processing_data {
 	struct processing_buffers *buffers;
 	uint64_t last_tic;
-	int last_step;	//!< Guess of step (buffers index) to try first, based on last iteration
+	int last_step;	//!< Window (buffers index) currently locked, or -1 while acquiring
+	int acquire_probe; //!< Next window to probe while acquiring (cycles 0..NSTEPS-1)
 	int is_light;
 };
 

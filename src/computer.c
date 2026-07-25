@@ -128,28 +128,47 @@ static void compute_update(struct computer *c)
 {
 	struct processing_data *pd = c->pdata;
 	struct processing_buffers *ps = pd->buffers;
-	int step = pd->last_step;
 
-	pd->last_step = 0;
 	/* Do all buffers at once so that all computation interval(s) use the
 	 * same data.  Buffers for some intervals will probably not be used, but
 	 * it's not expensive to fill them.  Processing is the slow part.  */
 	fill_buffers(ps);
 
 	debug("\nSTART OF COMPUTATION CYCLE\n\n");
-	unsigned int stepmask = BITMASK(NSTEPS); // Mask of available steps
-	do {
-		stepmask &= ~BIT(step);
-		analyze_processing_data(c->pdata, step, c->actv->bph, c->actv->la, c->actv->events_from);
 
-		if (ps[step].ready && ps[step].sigma < ps[step].period / 10000) {
-			// Try next step if it's available
-			if (stepmask & BIT(step+1)) step++;
-		} else {
-			// This step didn't pass, try a lesser step
-			step--;
-		}
-	} while(step >= 0 && stepmask & BIT(step));
+	int step;
+	if (pd->last_step >= 0) {
+		/* Tracking an existing lock: hill-climb from the window we last locked
+		 * on - move to a larger (more accurate) window while it still holds,
+		 * drop to a smaller one if it stops. */
+		step = pd->last_step;
+		unsigned int stepmask = BITMASK(NSTEPS); // Mask of available steps
+		do {
+			stepmask &= ~BIT(step);
+			analyze_processing_data(c->pdata, step, c->actv->bph, c->actv->la, c->actv->events_from);
+
+			if (ps[step].ready && ps[step].sigma < ps[step].period / 10000) {
+				// Try next step if it's available
+				if (stepmask & BIT(step+1)) step++;
+			} else {
+				// This step didn't pass, try a lesser step
+				step--;
+			}
+		} while(step >= 0 && stepmask & BIT(step));
+	} else {
+		/* Acquiring a lock.  The hill-climb above can only reach a larger window
+		 * by first locking the smaller one, but a weak or jittery watch may only
+		 * yield a clean (low-jitter) period in a larger window.  So while
+		 * unlocked, probe one window per cycle, cycling through the sizes, until
+		 * one locks - then the branch above tracks it.  This lets a marginal
+		 * watch be acquired on whichever window works, without running every
+		 * (expensive) large FFT on every idle cycle. */
+		step = pd->acquire_probe;
+		pd->acquire_probe = (pd->acquire_probe + 1) % NSTEPS;
+		analyze_processing_data(c->pdata, step, c->actv->bph, c->actv->la, c->actv->events_from);
+		if (!(ps[step].ready && ps[step].sigma < ps[step].period / 10000))
+			step = -1;
+	}
 
 	if (step >= 0) {
 		debug("%f +- %f\n", ps[step].period/ps[step].sample_rate, ps[step].sigma/ps[step].sample_rate);
@@ -163,6 +182,7 @@ static void compute_update(struct computer *c)
 		c->actv->signal = step+1;
 	} else {
 		debug("---\n");
+		pd->last_step = -1; // lost / not yet acquired - keep probing next cycle
 		c->actv->is_old = 1;
 		c->actv->signal = 0;
 	}
@@ -345,7 +365,8 @@ struct computer *start_computer(int nominal_sr, int bph, double la, int cal, int
 	pd->buffers = p;
 	pd->last_tic = 0;
 	pd->is_light = light;
-	pd->last_step = 0;
+	pd->last_step = -1;	/* start unlocked (acquiring) */
+	pd->acquire_probe = 0;
 
 	struct calibration_data *cd = malloc(sizeof(*cd));
 	setup_cal_data(cd);
