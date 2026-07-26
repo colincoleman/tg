@@ -9,6 +9,19 @@
 /* Forward declarations for static functions */
 static void pos_test_show_results(struct positional_test *pt);
 
+/* Folder last used to save a report, remembered for the session. */
+static char *last_save_folder = NULL;
+
+/* Build a filename-safe copy of a watch name (caller frees). */
+static char *pos_test_safe_name(const char *name)
+{
+    char *safe = g_strdup(name);
+    for (char *p = safe; *p; p++)
+        if (!g_ascii_isalnum((guchar)*p) && *p != '-' && *p != '_' && *p != '.')
+            *p = '_';
+    return safe;
+}
+
 struct positional_test *pos_test_create(struct main_window *w,
                                         int duration, int settling)
 {
@@ -531,20 +544,44 @@ static void pos_test_save_clicked(GtkButton *button, gpointer data)
     gtk_file_chooser_set_do_overwrite_confirmation(
         GTK_FILE_CHOOSER(dialog), TRUE);
 
-    /* 4. Generate default filename with current date */
+    /* 4. Default folder: the last one used this session, else ~/Documents. */
+    if (last_save_folder) {
+        gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), last_save_folder);
+    } else {
+        const char *docs = g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS);
+        if (!docs) docs = g_get_home_dir();
+        if (docs)
+            gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), docs);
+    }
+
+    /* 5. Default filename with the date, including the watch name if given. */
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);
-    char default_name[64];
-    strftime(default_name, sizeof(default_name),
-             "positional_test_%Y-%m-%d.txt", tm_now);
-
-    /* 5. Set the default filename */
+    char datebuf[16];
+    strftime(datebuf, sizeof(datebuf), "%Y-%m-%d", tm_now);
+    char default_name[128];
+    if (pt->watch_name && pt->watch_name[0]) {
+        char *safe = pos_test_safe_name(pt->watch_name);
+        snprintf(default_name, sizeof(default_name),
+                 "positional_test_%s_%s.txt", safe, datebuf);
+        g_free(safe);
+    } else {
+        snprintf(default_name, sizeof(default_name),
+                 "positional_test_%s.txt", datebuf);
+    }
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), default_name);
 
     /* 6. Run dialog */
     int response = gtk_dialog_run(GTK_DIALOG(dialog));
     if (response == GTK_RESPONSE_ACCEPT) {
         char *filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+
+        /* Remember this folder as the default for the next save. */
+        char *folder = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(dialog));
+        if (folder) {
+            g_free(last_save_folder);
+            last_save_folder = folder;
+        }
 
         /* Write report to the chosen file */
         GError *error = NULL;
