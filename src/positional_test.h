@@ -65,6 +65,9 @@ struct position_data {
     double beat_error;          /* ms */
     double amplitude;           /* degrees */
     bool valid;                 /* true if >= POS_MIN_EVENTS in window */
+    bool measured;              /* true once this position's phase has finished
+                                 * (valid or not) - a position is re-runnable and
+                                 * drawn as completed based on this, not its index */
 };
 
 /** Signal loss tracking */
@@ -98,6 +101,15 @@ struct positional_test {
     /* Per-position data */
     struct position_data positions[POS_COUNT];
 
+    /* Single-position re-run: when true, current_position is being re-measured
+     * and the test returns to rerun_return_state/rerun_return_position when it
+     * finishes.  rerun_backup holds the position's previous data (owning its
+     * arrays) so an aborted re-run restores the earlier result. */
+    bool single_rerun;
+    int rerun_return_position;
+    enum pos_test_state rerun_return_state;
+    struct position_data rerun_backup;
+
     /* Signal loss tracking */
     struct signal_loss_state sig_loss;
 
@@ -128,6 +140,12 @@ void pos_test_start(struct positional_test *pt);
 void pos_test_continue(struct positional_test *pt);
 void pos_test_cancel(struct positional_test *pt);
 void pos_test_skip_position(struct positional_test *pt);
+
+/* Re-run a single, already-measured position (only when not ACTIVE).  The test
+ * returns to where it was when the re-run finishes. */
+void pos_test_rerun_position(struct positional_test *pt, int pos);
+/* Abort an in-progress single re-run, restoring the previous result. */
+void pos_test_abort_rerun(struct positional_test *pt);
 
 /* Called from main timer callback */
 void pos_test_update(struct positional_test *pt,
