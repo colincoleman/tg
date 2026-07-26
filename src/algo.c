@@ -469,7 +469,7 @@ static double estimate_period(struct processing_buffers *p)
 	} else return estimate;
 }
 
-static int compute_period(struct processing_buffers *b, int bph)
+static int compute_period(struct processing_buffers *b, int bph, bool allow_single_cycle)
 {
 	double estimate;
 	if(bph)
@@ -511,13 +511,21 @@ static int compute_period(struct processing_buffers *b, int bph)
 		}
 		cycle++;
 	}
-	/* Reject the estimate unless it was confirmed by more than one cycle.  A
-	 * single cycle gives no way to compute a standard deviation, so its period
-	 * can't be trusted - in particular noise in guess mode otherwise yields a
-	 * bogus period that drives oversized allocations downstream.  */
+	/* A single confirmed cycle gives no way to compute a standard deviation, so
+	 * its period can't be trusted - in particular noise in guess mode otherwise
+	 * yields a bogus period that drives oversized allocations downstream.  So
+	 * reject it for normal detection.  Calibration is different: its reference
+	 * period is long relative to the analysis buffer, so a single cycle is
+	 * expected and legitimate there, and callers pass allow_single_cycle. */
 	if(count <= 1) {
-		debug("insufficient cycles for confident period estimate\n");
-		return 1;
+		if(!allow_single_cycle) {
+			debug("insufficient cycles for confident period estimate\n");
+			return 1;
+		}
+		if(count > 0) estimate = sum / count;
+		b->period = estimate;
+		b->sigma = 0;	// No std. dev. estimate possible with a single cycle
+		return 0;
 	}
 	estimate = sum / count;
 	b->period = estimate;
@@ -988,7 +996,7 @@ static void process(struct processing_buffers *p, int bph, double la, int light)
 {
 	prepare_data(p, !light);
 
-	p->ready = !compute_period(p,bph);
+	p->ready = !compute_period(p,bph,false);
 	/* Limit to 20% greater when period is known, or 500 ms when guessing period */
 	const int min_bph = bph ? bph : TYP_BPH;
 	const int max_period = (int)(1.2 * 3600 * 2) * p->sample_rate / min_bph;
@@ -1014,13 +1022,13 @@ static void process(struct processing_buffers *p, int bph, double la, int light)
 int test_cal(struct processing_buffers *p)
 {
 	prepare_data(p,0);
-	return compute_period(p,7200);
+	return compute_period(p,7200,true);
 }
 
 static int process_cal(struct processing_buffers *p, struct calibration_data *cd)
 {
 	prepare_data(p,0);
-	if(compute_period(p,7200)) {
+	if(compute_period(p,7200,true)) {
 		debug("abort after compute_period()\n");
 		return 1;
 	}
