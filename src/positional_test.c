@@ -284,53 +284,30 @@ static gboolean pos_test_draw_callback(GtkWidget *widget, cairo_t *cr,
                             measure_width, lane_height);
             cairo_fill(cr);
 
-            /* Compute accumulated offsets using FULL period intervals.
-             * The events alternate tic/toc. To show pure rate drift without
-             * beat-error wobble, compute residuals between same-type events
-             * (tic-to-tic or toc-to-toc = full period intervals).
-             * Each event gets the offset of its same-type predecessor. */
+            /* Accumulate a single phase offset over all events (tic and toc
+             * together), using the half-beat spacing between consecutive
+             * events.  This is the same scheme as the main paperstrip
+             * (output_panel.c): accumulated rate drift shows as the slope of
+             * the trace, while tic and toc dots separate vertically by exactly
+             * the beat error.  Since every position uses the same fixed scale,
+             * the tic/toc gap is directly comparable between positions.
+             *
+             * (The previous version accumulated tic and toc on two independent
+             * chains and anchored the toc line on the first beat's instantaneous
+             * asymmetry, so the gap didn't track the averaged beat error and
+             * looked different from one position to the next.) */
             double *offsets = malloc(pd->event_count * sizeof(double));
             if (!offsets) goto skip_lane;
 
-            /* half_beat = expected half-period (tic-to-toc or toc-to-tic) */
             double half_beat = beat_length / 2.0;
-
-            /* Accumulate using half-beat residuals but track tic and toc
-             * chains separately. This way beat error doesn't affect the
-             * accumulated offset — only rate drift does. */
-            double tic_offset = 0.0;
-            double toc_offset = 0.0;
-            int last_tic_idx = -1;
-            int last_toc_idx = -1;
-
-            for (int i = 0; i < pd->event_count; i++) {
-                if (pd->events_tictoc[i] == 0) {
-                    /* Tic event */
-                    if (last_tic_idx >= 0) {
-                        double diff = (double)(pd->events[i] - pd->events[last_tic_idx]);
-                        double residual = fmod(diff, beat_length);
-                        if (residual > beat_length / 2.0) residual -= beat_length;
-                        tic_offset += residual;
-                    }
-                    offsets[i] = tic_offset;
-                    last_tic_idx = i;
-                } else {
-                    /* Toc event */
-                    if (last_toc_idx >= 0) {
-                        double diff = (double)(pd->events[i] - pd->events[last_toc_idx]);
-                        double residual = fmod(diff, beat_length);
-                        if (residual > beat_length / 2.0) residual -= beat_length;
-                        toc_offset += residual;
-                    } else if (last_tic_idx >= 0) {
-                        /* First toc: offset relative to first tic using half-beat */
-                        double diff = (double)(pd->events[i] - pd->events[last_tic_idx]);
-                        double residual = fmod(diff, half_beat);
-                        if (residual > half_beat / 2.0) residual -= half_beat;
-                        toc_offset = tic_offset + residual;
-                    }
-                    offsets[i] = toc_offset;
-                    last_toc_idx = i;
-                }
+            double accumulated = 0.0;
+            offsets[0] = 0.0;
+            for (int i = 1; i < pd->event_count; i++) {
+                double diff = (double)(pd->events[i] - pd->events[i - 1]);
+                double residual = fmod(diff, half_beat);
+                if (residual > half_beat / 2.0) residual -= half_beat;
+                accumulated += residual;
+                offsets[i] = accumulated;
             }
 
             /* Fixed Y scale: lane height represents 10ms of timing offset.
